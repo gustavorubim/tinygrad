@@ -72,15 +72,17 @@ def get_details(k:Any, ctx:TrackedGraphRewrite, metadata:GraphRewriteMetadata, o
                              "kernel_code":pcall(_prg, k) if isinstance(k, Kernel) else None, **metadata,
                              "diffs":[[]], "upats":[None], "changed_nodes":[[]]} # NOTE: the first graph just renders the input UOp
   replaces: dict[UOp, UOp] = {}
-  for i,(u0,u1,upat) in enumerate(tqdm(ctx.matches)):
+  matches = reversed(ctx.matches) if ctx.bottom_up else ctx.matches
+  for i,(u0,u1,upat) in enumerate(tqdm(matches)):
     replaces[u0] = u1
     new_sink = sink.substitute(replaces)
+    if not ctx.bottom_up: sink = new_sink
     ret["graphs"].append(new_sink_js:=uop_to_json(new_sink))
     ret["changed_nodes"].append([id(x) for x in u1.toposort if id(x) in new_sink_js])
     ret["diffs"].append(list(difflib.unified_diff(pcall(str, u0).splitlines(), pcall(str, u1).splitlines())))
     ret["upats"].append((upat.location, upat.printable()))
     # TODO: this is O(n^2)!
-    ret["uops"].append(str(sink:=new_sink))
+    ret["uops"].append(str(new_sink))
   # if the client requested a chunk we only send that chunk
   # TODO: is there a way to cache the replaces dict here?
   return cast(GraphRewriteDetails, {k:v[offset:offset+limit] if isinstance(v,list) else v for k,v in ret.items()})

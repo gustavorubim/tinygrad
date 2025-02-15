@@ -334,8 +334,7 @@ class UOp(MathTrait, metaclass=UOpMetaClass):
   def __int__(self): return self._eval(dtypes.ints, int)
   def __float__(self): return self._eval(dtypes.floats, float)
   def substitute(self, dvars:dict[UOp, UOp]):
-    with Context(TRACK_MATCH_STATS=0):
-      return graph_rewrite(self, _substitute, dvars, bottom_up=True)
+    return graph_rewrite(self, _substitute, dvars, bottom_up=True)
 
   # *** uop syntactic sugar ***
 
@@ -837,10 +836,10 @@ class PatternMatcher:
 
 TRACK_MATCH_STATS = ContextVar("TRACK_MATCH_STATS", 2 if getenv("VIZ") else 0)
 match_stats:dict[UPat, list[Union[int, float]]] = dict()
-@dataclass(frozen=True)
+@dataclass
 class TrackedGraphRewrite:
   loc: tuple[str, int]                                                                       # location that called graph_rewrite
-  sink: UOp                                                                                  # the sink input to graph_rewrite
+  sinks: tuple[UOp, UOp|None]                                                                # [start, end] sink of this context
   bottom_up: bool
   matches: list[tuple[UOp, UOp, UPat]] = field(default_factory=list)                         # before+after of all the matches
 tracked_keys:list[Any] = []
@@ -927,8 +926,10 @@ class RewriteContext:
 
 def graph_rewrite(sink:UOp, pm:PatternMatcher, ctx=None, bottom_up=False) -> UOp:
   if TRACK_MATCH_STATS >= 2 and len(tracked_ctxs) != 0:
-    tracked_ctxs[-1].append(TrackedGraphRewrite(((frm:=sys._getframe(1)).f_code.co_filename, frm.f_lineno), sink, bottom_up))
-  return RewriteContext(pm, ctx).bottom_up_rewrite(sink) if bottom_up else RewriteContext(pm, ctx).top_down_rewrite(sink)
+    tracked_ctxs[-1].append(TrackedGraphRewrite(((frm:=sys._getframe(1)).f_code.co_filename, frm.f_lineno), (sink, None), bottom_up))
+  ret = RewriteContext(pm, ctx).bottom_up_rewrite(sink) if bottom_up else RewriteContext(pm, ctx).top_down_rewrite(sink)
+  if TRACK_MATCH_STATS >= 2 and len(tracked_ctxs) != 0: tracked_ctxs[-1][-1].sinks = (sink, ret)
+  return ret
 
 def graph_rewrite_map(sink:UOp, pm:PatternMatcher, ctx=None, bottom_up=False) -> dict[UOp, UOp]:
   if TRACK_MATCH_STATS >= 2 and len(tracked_ctxs) != 0:
